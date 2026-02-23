@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Programmatic Tool Calling — Explorer</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2129;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb33;
+    --green: #3fb950;
+    --green-dim: #23863533;
+    --orange: #d29922;
+    --orange-dim: #d2992233;
+    --red: #f85149;
+    --red-dim: #f8514933;
+    --purple: #bc8cff;
+    --purple-dim: #bc8cff33;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    grid-template-rows: 1fr auto;
+    overflow: hidden;
+  }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    grid-row: 1 / 3;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .sidebar h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+  .sidebar h2 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .group { display: flex; flex-direction: column; gap: 6px; }
+
+  /* Controls */
+  .preset-btn, .scenario-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: var(--sans);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+  }
+  .preset-btn:hover, .scenario-btn:hover { border-color: var(--accent); background: var(--accent-dim); }
+  .preset-btn.active { border-color: var(--accent); background: var(--accent-dim); }
+  .preset-btn .label { font-weight: 600; display: block; }
+  .preset-btn .desc { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+  }
+  .toggle-row label { font-size: 12px; }
+  .toggle {
+    width: 36px; height: 20px;
+    background: var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    border: none;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    background: var(--text);
+    border-radius: 50%;
+    top: 2px; left: 2px;
+    transition: transform 0.2s;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle.on::after { transform: translateX(16px); }
+
+  select.ctrl {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: var(--sans);
+    width: 100%;
+  }
+
+  .info-box {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .info-box strong { color: var(--accent); }
+
+  /* ---- Main area ---- */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Flow diagram */
+  .flow-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+  }
+  .flow-header {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .lane-header {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 6px 0;
+    border-radius: 6px;
+  }
+  .lane-header.your-code { color: var(--green); background: var(--green-dim); }
+  .lane-header.api { color: var(--accent); background: var(--accent-dim); }
+  .lane-header.sandbox { color: var(--purple); background: var(--purple-dim); }
+  .lane-header.tool-exec { color: var(--orange); background: var(--orange-dim); }
+
+  .flow-steps { display: flex; flex-direction: column; gap: 0; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 0;
+    min-height: 48px;
+    position: relative;
+  }
+  .step-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 6px 4px;
+  }
+
+  .step-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+    max-width: 220px;
+    position: relative;
+  }
+  .step-box:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .step-box.selected { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-dim); }
+  .step-box .step-num {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .step-box .step-title {
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .step-box .step-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+  }
+  .step-box.green { border-color: var(--green); background: var(--green-dim); }
+  .step-box.blue { border-color: var(--accent); background: var(--accent-dim); }
+  .step-box.purple { border-color: var(--purple); background: var(--purple-dim); }
+  .step-box.orange { border-color: var(--orange); background: var(--orange-dim); }
+  .step-box.red { border-color: var(--red); background: var(--red-dim); }
+
+  /* Arrows between steps */
+  .arrow-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+  }
+  .arrow-cell svg { opacity: 0.4; }
+
+  /* ---- JSON Panel ---- */
+  .json-panel {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    max-height: 45vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .json-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .json-panel-header .title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .json-panel-header .tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .json-body {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 16px;
+  }
+  .json-body pre {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .json-body .comment {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  /* Syntax highlighting */
+  .j-key { color: #79c0ff; }
+  .j-str { color: #a5d6ff; }
+  .j-num { color: #79c0ff; }
+  .j-bool { color: #ff7b72; }
+  .j-null { color: #ff7b72; }
+  .j-highlight { background: var(--accent-dim); display: inline; padding: 1px 3px; border-radius: 3px; }
+  .j-comment { color: var(--text-dim); font-style: italic; }
+
+  /* ---- Prompt output ---- */
+  .prompt-area {
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    flex-shrink: 0;
+  }
+  .prompt-area .prompt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .prompt-area .prompt-header span {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+  }
+  .copy-btn {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--sans);
+    font-weight: 600;
+  }
+  .copy-btn:hover { opacity: 0.9; }
+  .prompt-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+    max-height: 60px;
+    overflow-y: auto;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* Vertical lane lines */
+  .lane-line {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: var(--border);
+    opacity: 0.3;
+    pointer-events: none;
+  }
+  .flow-wrapper { position: relative; }
+
+  /* Step connector arrows */
+  .connector {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    min-height: 24px;
+  }
+  .connector-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .connector-arrow {
+    height: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 14px;
+    opacity: 0.5;
+  }
+  .connector-h {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    opacity: 0.5;
+    position: absolute;
+    white-space: nowrap;
+  }
+
+  .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px;
+    line-height: 1.6;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: var(--mono);
+    margin-left: 4px;
+  }
+  .badge.new { background: var(--green-dim); color: var(--green); }
+  .badge.key { background: var(--accent-dim); color: var(--accent); }
+
+  .legend {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div>
+    <h1>Programmatic Tool Calling</h1>
+    <p style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.4">
+      Explore how Claude calls your tools from within a code execution sandbox, reducing latency and token usage.
+    </p>
+  </div>
+
+  <div class="group">
+    <h2>Scenario</h2>
+    <button class="preset-btn active" data-preset="basic">
+      <span class="label">Single Tool Call</span>
+      <span class="desc">One query, one tool invocation</span>
+    </button>
+    <button class="preset-btn" data-preset="loop">
+      <span class="label">Batch Loop</span>
+      <span class="desc">Loop over regions, aggregate results</span>
+    </button>
+    <button class="preset-btn" data-preset="conditional">
+      <span class="label">Conditional Logic</span>
+      <span class="desc">Choose tool based on intermediate result</span>
+    </button>
+    <button class="preset-btn" data-preset="error">
+      <span class="label">Error / Timeout</span>
+      <span class="desc">What happens when a tool fails</span>
+    </button>
+  </div>
+
+  <div class="group">
+    <h2>Options</h2>
+    <div class="toggle-row">
+      <label>Show code in sandbox</label>
+      <button class="toggle on" id="toggleCode" onclick="this.classList.toggle('on');render()"></button>
+    </div>
+    <div class="toggle-row">
+      <label>Highlight key fields</label>
+      <button class="toggle on" id="toggleHighlight" onclick="this.classList.toggle('on');selectStep(selectedStep)"></button>
+    </div>
+    <div class="toggle-row">
+      <label>Compare with direct calling</label>
+      <button class="toggle" id="toggleCompare" onclick="this.classList.toggle('on');render()"></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Legend</h2>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green-dim);border-color:var(--green)"></div>Your code</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--accent-dim);border-color:var(--accent)"></div>Claude API</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--purple-dim);border-color:var(--purple)"></div>Sandbox</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--orange-dim);border-color:var(--orange)"></div>Tool exec</div>
+    </div>
+  </div>
+
+  <div class="info-box" id="infoBox">
+    <strong>Click a step</strong> in the flow diagram to inspect the exact JSON request/response at that point.
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="flow-area" id="flowArea"></div>
+
+  <div class="json-panel" id="jsonPanel" style="display:none">
+    <div class="json-panel-header">
+      <span class="title" id="jsonTitle">Step Details</span>
+      <div class="tabs" id="jsonTabs"></div>
+    </div>
+    <div class="json-body"><pre id="jsonContent"></pre></div>
+  </div>
+
+  <div class="prompt-area">
+    <div class="prompt-header">
+      <span>Generated Prompt</span>
+      <button class="copy-btn" onclick="copyPrompt()">Copy</button>
+    </div>
+    <div class="prompt-text" id="promptText"></div>
+  </div>
+</div>
+
+<script>
+// ---- State ----
+const state = {
+  preset: 'basic',
+  showCode: true,
+  highlight: true,
+  compare: false,
+};
+
+let selectedStep = null;
+
+// ---- Scenarios ----
+const scenarios = {
+  basic: {
+    title: 'Single Programmatic Tool Call',
+    description: 'Claude writes Python code that calls your tool once, processes the result, then responds.',
+    steps: [
+      {
+        id: 'req1',
+        lane: 0,
+        color: 'green',
+        num: '1',
+        title: 'Send request',
+        sub: 'messages + tools with allowed_callers',
+        json: {
+          request: () => jsonHL(`{
+  "model": "claude-opus-4-6",
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Query customer revenue for last quarter and find the top 5"
+    }
+  ],
+  "tools": [
+    {
+      ${hl('"type": "code_execution_20260120"', 'key')},
+      "name": "code_execution"
+    },
+    {
+      "name": "query_database",
+      "description": "Execute a SQL query. Returns JSON rows.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sql": { "type": "string" }
+        },
+        "required": ["sql"]
+      },
+      ${hl('"allowed_callers": ["code_execution_20260120"]', 'key')}
+    }
+  ]
+}`),
+          notes: `The code_execution tool enables the sandbox.\nallowed_callers tells Claude this tool should be called from code, not directly.`,
+        },
+      },
+      {
+        id: 'resp1',
+        lane: 1,
+        color: 'blue',
+        num: '2',
+        title: 'API responds with code + tool_use',
+        sub: 'stop_reason: "tool_use"',
+        json: {
+          response: () => jsonHL(`{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "I'll query the data and analyze it."
+    },
+    {
+      ${hl('"type": "server_tool_use"', 'key')},
+      "id": "srvtoolu_abc123",
+      "name": "code_execution",
+      "input": {
+        "code": "results = await query_database(...)\\ntop = sorted(results, key=lambda x: x['revenue'], reverse=True)[:5]\\nprint(top)"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_def456",
+      "name": "query_database",
+      "input": { "sql": "SELECT customer_id, SUM(amount) as revenue FROM orders WHERE quarter='Q4' GROUP BY customer_id" },
+      ${hl('"caller": { "type": "code_execution_20260120", "tool_id": "srvtoolu_abc123" }', 'key')}
+    }
+  ],
+  ${hl('"container": { "id": "container_xyz789", "expires_at": "2025-01-15T14:30:00Z" }', 'new')},
+  "stop_reason": "tool_use"
+}`),
+          notes: `server_tool_use = the sandbox running Python code.\ntool_use with caller field = the sandbox calling your tool.\ncontainer has an expires_at — you must respond before it expires (~4.5 min).`,
+        },
+      },
+      {
+        id: 'exec1',
+        lane: 3,
+        color: 'orange',
+        num: '3',
+        title: 'Execute tool',
+        sub: 'Run query_database with the SQL',
+        json: {
+          'your handler': () => jsonHL(`${cm('// Your code receives the tool_use block and executes it')}
+const toolInput = response.content.find(b => b.type === "tool_use");
+const result = await myDatabase.query(toolInput.input.sql);
+${cm('// Return result as JSON string')}`),
+          notes: `You run the actual tool (database query, API call, etc.) and return the result.\nThe sandbox is paused, waiting for your response.`,
+        },
+      },
+      {
+        id: 'result1',
+        lane: 0,
+        color: 'green',
+        num: '4',
+        title: 'Send tool_result',
+        sub: 'Resume sandbox with data',
+        json: {
+          request: () => jsonHL(`{
+  "model": "claude-opus-4-6",
+  ${hl('"container": "container_xyz789"', 'key')},
+  "messages": [
+    { "role": "user", "content": "Query customer revenue..." },
+    {
+      "role": "assistant",
+      "content": [
+        ${cm('// ... text + server_tool_use + tool_use blocks from step 2')}
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          ${hl('"type": "tool_result"', 'key')},
+          "tool_use_id": "toolu_def456",
+          "content": "[{\\"customer_id\\": \\"C1\\", \\"revenue\\": 45000}, {\\"customer_id\\": \\"C2\\", \\"revenue\\": 38000}, ...]"
+        }
+      ]
+    }
+  ],
+  "tools": [ ${cm('// same tools as step 1')} ]
+}`),
+          notes: `Include full conversation history.\nReuse the container ID so the sandbox resumes.\nOnly tool_result blocks — no text allowed when responding to programmatic calls.`,
+        },
+      },
+      {
+        id: 'sandbox1',
+        lane: 2,
+        color: 'purple',
+        num: '5',
+        title: 'Sandbox processes result',
+        sub: 'Python code continues, sorts & aggregates',
+        json: {
+          'sandbox code': () => jsonHL(`${cm('# Code that Claude wrote (running in sandbox):')}
+results = await query_database("SELECT ...")
+${cm('# ^ this call paused, got your result, now continues:')}
+top = sorted(results, key=lambda x: x['revenue'], reverse=True)[:5]
+print(f"Top 5 customers: {top}")
+${cm('# Only the print output goes back to Claude\'s context')}`),
+          notes: `The raw tool result (possibly thousands of rows) never enters Claude's context.\nOnly the printed summary does. This is the key token-saving mechanism.`,
+        },
+      },
+      {
+        id: 'final1',
+        lane: 1,
+        color: 'blue',
+        num: '6',
+        title: 'Final response',
+        sub: 'stop_reason: "end_turn"',
+        json: {
+          response: () => jsonHL(`{
+  "content": [
+    {
+      ${hl('"type": "code_execution_tool_result"', 'key')},
+      "tool_use_id": "srvtoolu_abc123",
+      "content": {
+        "type": "code_execution_result",
+        "stdout": "Top 5 customers:\\n1. C1: $45,000\\n2. C2: $38,000\\n...",
+        "stderr": "",
+        "return_code": 0
+      }
+    },
+    {
+      "type": "text",
+      "text": "Your top 5 customers generated $167,500 in total revenue last quarter."
+    }
+  ],
+  ${hl('"stop_reason": "end_turn"', 'key')}
+}`),
+          notes: `code_execution_tool_result contains the sandbox stdout.\nClaude then writes a final text response based on that summary.\nDone! No more tool calls needed.`,
+        },
+      },
+    ],
+  },
+
+  loop: {
+    title: 'Batch Loop — Multiple Tool Calls',
+    description: 'Claude writes a for-loop that calls your tool N times. Each call pauses the sandbox, you provide the result, and it resumes. Saves N-1 model round-trips compared to direct calling.',
+    steps: [
+      {
+        id: 'l-req', lane: 0, color: 'green', num: '1',
+        title: 'Send request',
+        sub: '"Query sales for West, East, Central regions"',
+        json: {
+          request: () => jsonHL(`{
+  "model": "claude-opus-4-6",
+  "messages": [{ "role": "user", "content": "Query sales data for West, East, and Central regions, then tell me which had the highest revenue" }],
+  "tools": [
+    { "type": "code_execution_20260120", "name": "code_execution" },
+    { "name": "query_database", "description": "...", "input_schema": {...}, ${hl('"allowed_callers": ["code_execution_20260120"]', 'key')} }
+  ]
+}`), notes: 'Same setup as before. Claude decides to use a loop.',
+        },
+      },
+      {
+        id: 'l-code', lane: 2, color: 'purple', num: '2',
+        title: 'Sandbox: loop begins',
+        sub: 'for region in ["West", "East", "Central"]',
+        json: {
+          'sandbox code': () => jsonHL(`regions = ["West", "East", "Central"]
+results = {}
+for region in regions:
+    data = await query_database(f"SELECT SUM(revenue) as total FROM sales WHERE region='{region}'")
+    results[region] = data[0]["total"]
+
+top = max(results.items(), key=lambda x: x[1])
+print(f"Top region: {top[0]} with \${top[1]:,}")`),
+          notes: `Claude wrote this loop. It will pause 3 times — once per query_database call.\nEach pause returns a tool_use to you. You provide the result, sandbox continues to next iteration.`,
+        },
+      },
+      {
+        id: 'l-call1', lane: 3, color: 'orange', num: '3a',
+        title: 'Tool call: "West"',
+        sub: 'Sandbox pauses, you execute & return result',
+        json: {
+          'tool_use received': () => jsonHL(`{
+  "type": "tool_use",
+  "id": "toolu_001",
+  "name": "query_database",
+  "input": { "sql": "SELECT SUM(revenue) as total FROM sales WHERE region='West'" },
+  "caller": { "type": "code_execution_20260120", "tool_id": "srvtoolu_abc" }
+}`),
+          'you respond': () => jsonHL(`{
+  "role": "user",
+  "content": [{ "type": "tool_result", "tool_use_id": "toolu_001", "content": "[{\\"total\\": 125000}]" }]
+}`),
+          notes: 'First iteration. Sandbox pauses, you run query, send result, sandbox resumes.',
+        },
+      },
+      {
+        id: 'l-call2', lane: 3, color: 'orange', num: '3b',
+        title: 'Tool call: "East"',
+        sub: 'Same pattern, second iteration',
+        json: {
+          'tool_use received': () => jsonHL(`{
+  "type": "tool_use",
+  "id": "toolu_002",
+  "name": "query_database",
+  "input": { "sql": "...WHERE region='East'" },
+  "caller": { "type": "code_execution_20260120", "tool_id": "srvtoolu_abc" }
+}`),
+          notes: 'Same flow: receive tool_use → execute → return tool_result.',
+        },
+      },
+      {
+        id: 'l-call3', lane: 3, color: 'orange', num: '3c',
+        title: 'Tool call: "Central"',
+        sub: 'Third and final iteration',
+        json: {
+          'tool_use received': () => jsonHL(`{ "type": "tool_use", "id": "toolu_003", "name": "query_database", "input": { "sql": "...WHERE region='Central'" }, "caller": {...} }`),
+          notes: 'After you return this result, the for-loop completes and the sandbox finishes.',
+        },
+      },
+      {
+        id: 'l-final', lane: 1, color: 'blue', num: '4',
+        title: 'Final response',
+        sub: 'Aggregated result, 1 model inference',
+        json: {
+          response: () => jsonHL(`{
+  "content": [
+    {
+      "type": "code_execution_tool_result",
+      "tool_use_id": "srvtoolu_abc",
+      "content": {
+        "stdout": "Top region: West with $125,000",
+        "return_code": 0
+      }
+    },
+    { "type": "text", "text": "The West region had the highest revenue at $125,000, followed by East and Central." }
+  ],
+  "stop_reason": "end_turn"
+}`),
+          notes: `3 tool calls but only 1 model inference!\nWith direct calling, this would be 3 separate model round-trips.\nToken savings: raw data from all 3 queries never enters Claude's context.`,
+        },
+      },
+    ],
+  },
+
+  conditional: {
+    title: 'Conditional Tool Selection',
+    description: 'Claude writes code that inspects an intermediate result and chooses which tool to call next — all in a single code execution.',
+    steps: [
+      {
+        id: 'c-req', lane: 0, color: 'green', num: '1',
+        title: 'Send request',
+        sub: '"Read this file — use summary if it\'s large"',
+        json: {
+          request: () => jsonHL(`{
+  "messages": [{ "role": "user", "content": "Read the config file. If it's over 10KB, just get a summary." }],
+  "tools": [
+    { "type": "code_execution_20260120", "name": "code_execution" },
+    { "name": "get_file_info", ..., "allowed_callers": ["code_execution_20260120"] },
+    { "name": "read_full_file", ..., "allowed_callers": ["code_execution_20260120"] },
+    { "name": "read_file_summary", ..., "allowed_callers": ["code_execution_20260120"] }
+  ]
+}`), notes: 'Three tools available. Claude decides which to call based on file size.',
+        },
+      },
+      {
+        id: 'c-code', lane: 2, color: 'purple', num: '2',
+        title: 'Sandbox: conditional logic',
+        sub: 'if size < 10000: read_full else: read_summary',
+        json: {
+          'sandbox code': () => jsonHL(`file_info = await get_file_info("config.yaml")
+if file_info["size"] < 10000:
+    content = await read_full_file("config.yaml")
+else:
+    content = await read_file_summary("config.yaml")
+print(content)`),
+          notes: 'The conditional branch is evaluated in code, not by re-sampling Claude.',
+        },
+      },
+      {
+        id: 'c-call1', lane: 3, color: 'orange', num: '3',
+        title: 'Tool: get_file_info',
+        sub: 'Returns size=2400 bytes',
+        json: {
+          notes: 'You return: {"size": 2400, "type": "yaml"}\nSandbox evaluates: 2400 < 10000 → true → takes the read_full_file branch.',
+        },
+      },
+      {
+        id: 'c-call2', lane: 3, color: 'orange', num: '4',
+        title: 'Tool: read_full_file',
+        sub: 'Conditional branch taken!',
+        json: {
+          notes: 'Because the file was small, the sandbox calls read_full_file.\nWith direct calling, Claude would need TWO model inferences to make this decision.',
+        },
+      },
+      {
+        id: 'c-final', lane: 1, color: 'blue', num: '5',
+        title: 'Final response',
+        sub: 'File contents delivered',
+        json: {
+          notes: 'Claude gets the printed output and responds with the file contents.\nOnly 1 model inference needed for a 2-tool, conditional workflow.',
+        },
+      },
+    ],
+  },
+
+  error: {
+    title: 'Error & Timeout Handling',
+    description: 'What happens when a tool fails or the container expires before you respond.',
+    steps: [
+      {
+        id: 'e-req', lane: 0, color: 'green', num: '1',
+        title: 'Send request',
+        sub: 'Same setup as before',
+        json: { notes: 'Standard request with code_execution + tools with allowed_callers.' },
+      },
+      {
+        id: 'e-call', lane: 3, color: 'orange', num: '2',
+        title: 'Tool call: query_database',
+        sub: 'Sandbox pauses, waiting for result',
+        json: {
+          response: () => jsonHL(`{
+  "content": [...],
+  "container": {
+    "id": "container_abc",
+    ${hl('"expires_at": "2025-01-15T14:30:00Z"', 'key')}
+  },
+  "stop_reason": "tool_use"
+}`),
+          notes: `The container expires in ~4.5 minutes.\nYou must return the tool_result before expires_at.`,
+        },
+      },
+      {
+        id: 'e-err', lane: 3, color: 'red', num: '3a',
+        title: 'Scenario: Tool returns error',
+        sub: 'Your tool handler returns an error string',
+        json: {
+          'error result': () => jsonHL(`{
+  "role": "user",
+  "content": [{
+    "type": "tool_result",
+    "tool_use_id": "toolu_abc",
+    ${hl('"content": "Error: Query timeout — table lock exceeded 30 seconds"', 'key')}
+  }]
+}`),
+          notes: `Return error info as the tool_result content string.\nThe sandbox code receives this and Claude can handle it.`,
+        },
+      },
+      {
+        id: 'e-timeout', lane: 2, color: 'red', num: '3b',
+        title: 'Scenario: Container expires',
+        sub: 'You respond too late!',
+        json: {
+          response: () => jsonHL(`{
+  "type": "code_execution_tool_result",
+  "content": {
+    "stdout": "",
+    ${hl('"stderr": "TimeoutError: Calling tool [\'query_database\'] timed out."', 'key')},
+    "return_code": 0
+  }
+}`),
+          notes: `If you don't respond in time, the sandbox gets a TimeoutError.\nClaude sees this in stderr and will typically retry the operation.\nMonitor the expires_at field to prevent this.`,
+        },
+      },
+      {
+        id: 'e-final', lane: 1, color: 'blue', num: '4',
+        title: 'Claude handles error',
+        sub: 'May retry or inform the user',
+        json: {
+          notes: 'Claude can:\n• Retry the tool call (new code execution)\n• Inform the user about the error\n• Try an alternative approach\n\nThe code execution result includes stderr output that Claude reads.',
+        },
+      },
+    ],
+  },
+};
+
+// ---- Comparison data ----
+const comparisonInfo = {
+  basic: '1 tool call → Direct: 2 model inferences (request + after result). Programmatic: 1 model inference. Tokens saved: raw data never enters context.',
+  loop: '3 tool calls → Direct: 4 model inferences (request + 3 results). Programmatic: 1 model inference. 75% fewer round-trips.',
+  conditional: '2 tool calls → Direct: 3 model inferences (request + decide + result). Programmatic: 1 model inference. Decision happens in code.',
+  error: 'Error handling is similar, but programmatic lets the sandbox code handle errors in Python try/except.',
+};
+
+// ---- Rendering ----
+function hl(text, type) {
+  if (!document.getElementById('toggleHighlight').classList.contains('on')) return text;
+  return `<HIGHLIGHT_${type.toUpperCase()}>${text}</HIGHLIGHT_${type.toUpperCase()}>`;
+}
+
+function cm(text) {
+  return `<COMMENT>${text}</COMMENT>`;
+}
+
+function jsonHL(str) {
+  // Process our custom markers first
+  let s = str;
+  // Escape HTML
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Restore our markers
+  s = s.replace(/&lt;HIGHLIGHT_KEY&gt;([\s\S]*?)&lt;\/HIGHLIGHT_KEY&gt;/g, '<span class="j-highlight">$1</span>');
+  s = s.replace(/&lt;HIGHLIGHT_NEW&gt;([\s\S]*?)&lt;\/HIGHLIGHT_NEW&gt;/g, '<span class="j-highlight" style="background:var(--green-dim)">$1</span>');
+  s = s.replace(/&lt;COMMENT&gt;([\s\S]*?)&lt;\/COMMENT&gt;/g, '<span class="j-comment">$1</span>');
+
+  // JSON syntax highlighting
+  s = s.replace(/"([^"]*)"(\s*:)/g, '<span class="j-key">"$1"</span>$2');
+  s = s.replace(/:\s*"([^"]*)"/g, ': <span class="j-str">"$1"</span>');
+  s = s.replace(/:\s*(\d+)/g, ': <span class="j-num">$1</span>');
+  s = s.replace(/:\s*(true|false)/g, ': <span class="j-bool">$1</span>');
+  s = s.replace(/:\s*(null)/g, ': <span class="j-null">$1</span>');
+
+  return s;
+}
+
+function render() {
+  state.showCode = document.getElementById('toggleCode').classList.contains('on');
+  state.compare = document.getElementById('toggleCompare').classList.contains('on');
+
+  const scenario = scenarios[state.preset];
+  const fa = document.getElementById('flowArea');
+
+  let html = '';
+
+  // Header
+  html += '<div class="flow-header">';
+  html += '<div class="lane-header your-code">Your Code</div>';
+  html += '<div class="lane-header api">Claude API</div>';
+  html += '<div class="lane-header sandbox">Sandbox</div>';
+  html += '<div class="lane-header tool-exec">Tool Execution</div>';
+  html += '</div>';
+
+  html += `<p style="font-size:13px;color:var(--text-dim);margin-bottom:20px;line-height:1.5">${scenario.description}</p>`;
+
+  // Steps
+  html += '<div class="flow-steps">';
+  scenario.steps.forEach((step, i) => {
+    // Arrow between steps
+    if (i > 0) {
+      html += '<div class="connector">';
+      for (let l = 0; l < 4; l++) {
+        html += '<div class="connector-cell">';
+        if (l === scenario.steps[i-1].lane || l === step.lane) {
+          html += '<div class="connector-arrow">↓</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '<div class="step">';
+    for (let l = 0; l < 4; l++) {
+      html += '<div class="step-cell">';
+      if (l === step.lane) {
+        const sel = selectedStep === step.id ? ' selected' : '';
+        html += `<div class="step-box ${step.color}${sel}" onclick="selectStep('${step.id}')">`;
+        html += `<div class="step-num">STEP ${step.num}</div>`;
+        html += `<div class="step-title">${step.title}</div>`;
+        html += `<div class="step-sub">${step.sub}</div>`;
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Comparison
+  if (state.compare) {
+    html += `<div style="margin-top:20px;padding:14px;background:var(--orange-dim);border:1px solid var(--orange);border-radius:8px;font-size:12px;line-height:1.5">
+      <strong style="color:var(--orange)">Direct vs Programmatic:</strong> ${comparisonInfo[state.preset]}
+    </div>`;
+  }
+
+  fa.innerHTML = html;
+  updatePrompt();
+}
+
+function selectStep(stepId) {
+  selectedStep = stepId;
+  render();
+
+  const scenario = scenarios[state.preset];
+  const step = scenario.steps.find(s => s.id === stepId);
+  if (!step || !step.json) { document.getElementById('jsonPanel').style.display = 'none'; return; }
+
+  document.getElementById('jsonPanel').style.display = 'flex';
+  document.getElementById('jsonTitle').textContent = `Step ${step.num}: ${step.title}`;
+
+  const tabs = document.getElementById('jsonTabs');
+  const content = document.getElementById('jsonContent');
+
+  const keys = Object.keys(step.json);
+  let html = '';
+  keys.forEach((k, i) => {
+    const cls = i === 0 ? ' active' : '';
+    html += `<button class="tab-btn${cls}" onclick="showTab(this, '${stepId}', '${k}')">${k}</button>`;
+  });
+  tabs.innerHTML = html;
+
+  showTabContent(stepId, keys[0]);
+
+  // Update info box
+  if (step.json.notes) {
+    document.getElementById('infoBox').innerHTML = step.json.notes.replace(/\n/g, '<br>');
+  }
+}
+
+function showTab(btn, stepId, key) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  showTabContent(stepId, key);
+}
+
+function showTabContent(stepId, key) {
+  const scenario = scenarios[state.preset];
+  const step = scenario.steps.find(s => s.id === stepId);
+  const content = document.getElementById('jsonContent');
+
+  const val = step.json[key];
+  if (typeof val === 'function') {
+    content.innerHTML = val();
+  } else if (typeof val === 'string') {
+    content.innerHTML = `<span class="j-comment">${val.replace(/\n/g, '<br>')}</span>`;
+  } else {
+    content.innerHTML = '<span class="j-comment">No content</span>';
+  }
+}
+
+function updatePrompt() {
+  const scenario = scenarios[state.preset];
+  const p = document.getElementById('promptText');
+
+  let parts = [`I'm learning about Claude's programmatic tool calling feature.`];
+
+  if (state.preset === 'basic') {
+    parts.push('Show me how a single programmatic tool call works end-to-end: the initial request with allowed_callers, the response containing server_tool_use and tool_use with caller field, how to send the tool_result to resume the sandbox, and the final code_execution_tool_result.');
+  } else if (state.preset === 'loop') {
+    parts.push('Explain how Claude can write a for-loop in the sandbox that calls a tool multiple times. Show the full message flow for 3 iterations — how each tool call pauses the sandbox, I provide the result, and it resumes. Emphasize the token savings vs direct calling.');
+  } else if (state.preset === 'conditional') {
+    parts.push('Show me how programmatic tool calling enables conditional logic — where Claude writes code that calls one tool, inspects the result, then decides which tool to call next, all within a single code execution.');
+  } else if (state.preset === 'error') {
+    parts.push('Explain error handling in programmatic tool calling: what happens when a tool returns an error string, and what happens if the container expires before I respond (TimeoutError in stderr). How should I monitor expires_at?');
+  }
+
+  if (state.compare) {
+    parts.push('Compare this with direct tool calling — how many model inferences does each approach need, and what are the token savings?');
+  }
+
+  parts.push('Use concrete JSON examples for each step.');
+
+  p.textContent = parts.join(' ');
+}
+
+function copyPrompt() {
+  const text = document.getElementById('promptText').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+// ---- Event handlers ----
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.preset = btn.dataset.preset;
+    selectedStep = null;
+    document.getElementById('jsonPanel').style.display = 'none';
+    document.getElementById('infoBox').innerHTML = '<strong>Click a step</strong> in the flow diagram to inspect the exact JSON request/response at that point.';
+    render();
+  });
+});
+
+// ---- Init ----
+render();
+</script>
+</body>
+</html>
